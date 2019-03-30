@@ -50,7 +50,7 @@ class Feed extends Component {
       page--;
       this.setState({ postPage: page });
     }
-    fetch('http://localhost:8080/feed/posts')
+    fetch(`http://localhost:8080/feed/posts?page=${page}`)
       .then(res => {
         if (res.status !== 200) {
           throw new Error('Failed to fetch posts.');
@@ -59,7 +59,12 @@ class Feed extends Component {
       })
       .then(resData => {
         this.setState({
-          posts: resData.posts,
+          posts: resData.posts.map(post => {
+            return {
+              ...post,
+              imagePath: post.imageUrl
+            }
+          }),
           totalPosts: resData.totalItems,
           postsLoading: false
         });
@@ -90,10 +95,7 @@ class Feed extends Component {
     this.setState(prevState => {
       const loadedPost = { ...prevState.posts.find(p => p._id === postId) };
 
-      return {
-        isEditing: true,
-        editPost: loadedPost
-      };
+      return { isEditing: true, editPost: loadedPost };
     });
   };
 
@@ -102,25 +104,21 @@ class Feed extends Component {
   };
 
   finishEditHandler = postData => {
-    this.setState({
-      editLoading: true
-    });
-    // Set up data (with image!)
+    this.setState({ editLoading: true });
+    const formData = new FormData();
+    formData.append('title', postData.title);
+    formData.append('content', postData.content);
+    formData.append('image', postData.image);
     let url = 'http://localhost:8080/feed/post';
     let method = 'POST';
     if (this.state.editPost) {
-      url = 'URL';
+      url = `http://localhost:8080/feed/post/${this.state.editPost._id}`;
+      method = 'PUT';
     }
 
     fetch(url, { 
       method,
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        title: postData.title,
-        content: postData.content
-      })
+      body: formData
     })
       .then(res => {
         if (res.status !== 200 && res.status !== 201) {
@@ -171,7 +169,7 @@ class Feed extends Component {
 
   deletePostHandler = postId => {
     this.setState({ postsLoading: true });
-    fetch('URL')
+    fetch(`http://localhost:8080/feed/post/${postId}`, { method: 'DELETE' })
       .then(res => {
         if (res.status !== 200 && res.status !== 201) {
           throw new Error('Deleting a post failed!');
@@ -179,7 +177,6 @@ class Feed extends Component {
         return res.json();
       })
       .then(resData => {
-        console.log(resData);
         this.setState(prevState => {
           const updatedPosts = prevState.posts.filter(p => p._id !== postId);
           return { posts: updatedPosts, postsLoading: false };
@@ -196,7 +193,7 @@ class Feed extends Component {
   };
 
   catchError = error => {
-    this.setState({ error: error });
+    this.setState({ error });
   };
 
   render() {
