@@ -1,4 +1,5 @@
 import React, { Component, Fragment } from 'react';
+import openSocket from 'socket.io-client';
 
 import Post from '../../components/Feed/Post/Post';
 import Button from '../../components/Button/Button';
@@ -21,23 +22,63 @@ class Feed extends Component {
     editLoading: false
   };
 
-  componentDidMount() {
-    fetch('URL')
-      .then(res => {
-        if (res.status !== 200) {
-          throw new Error('Failed to fetch user status.');
-        }
-        return res.json();
-      })
-      .then(resData => {
-        this.setState({ status: resData.status });
-      })
-      .catch(this.catchError);
+  async componentDidMount() {
+    try {
+      const response = await fetch('http://localhost:8080/auth/status', {
+        headers: { Authorization: `Bearer ${this.props.token}` }
+      });
+      if (response.status !== 200) {
+        throw new Error('Failed to fetch user status.');
+      }
 
-    this.loadPosts();
+      const data = await response.json();
+      this.setState({ status: data.status });
+      this.loadPosts();
+      const socket = openSocket('http://localhost:8080');
+      socket.on('posts', data => {
+        if (data.action === 'created') {
+          this.addPost(data.post);
+        } else if (data.action === 'update') {
+          this.updatePost(data.post);
+        } else if (data.action === 'delete') {
+          this.loadPosts();
+        }
+      })
+    } catch (e) {
+      this.catchError(e);
+    }
   }
 
-  loadPosts = direction => {
+  addPost = post => {
+    this.setState(prevState => {
+      const updatedPosts = [...prevState.posts];
+      if (prevState.postPage === 1) {
+        if (prevState.posts.length >= 2) {
+          updatedPosts.pop();
+        }
+        updatedPosts.unshift(post);
+      }
+      return {
+        posts: updatedPosts,
+        totalPosts: prevState.totalPosts + 1
+      };
+    });
+  }
+
+  updatePost = post => {
+    this.setState(prevState => {
+      const updatedPosts = [...prevState.posts];
+      const updatedPostIndex = updatedPosts.findIndex(p => p._id === post._id);
+      if (updatedPostIndex > -1) {
+        updatedPosts[updatedPostIndex] = post;
+      }
+      return {
+        posts: updatedPosts
+      };
+    });
+  };
+
+  loadPosts = async direction => {
     if (direction) {
       this.setState({ postsLoading: true, posts: [] });
     }
@@ -50,43 +91,43 @@ class Feed extends Component {
       page--;
       this.setState({ postPage: page });
     }
-    fetch(`http://localhost:8080/feed/posts?page=${page}`, {
-      headers: { Authorization: `Bearer ${this.props.token}` }
-    })
-      .then(res => {
-        if (res.status !== 200) {
-          throw new Error('Failed to fetch posts.');
-        }
-        return res.json();
+    
+    try {
+      const response = await fetch(`http://localhost:8080/feed/posts?page=${page}`, {
+        headers: { Authorization: `Bearer ${this.props.token}` }
       })
-      .then(resData => {
-        this.setState({
-          posts: resData.posts.map(post => {
-            return {
-              ...post,
-              imagePath: post.imageUrl
-            }
-          }),
-          totalPosts: resData.totalItems,
-          postsLoading: false
-        });
-      })
-      .catch(this.catchError);
+      if (response.status !== 200) {
+        throw new Error('Failed to fetch posts.');
+      }
+  
+      const data = await response.json();
+      this.setState({
+        posts: data.posts.map(post => {
+          return {
+            ...post,
+            imagePath: post.imageUrl
+          }
+        }),
+        totalPosts: data.totalItems,
+        postsLoading: false
+      });
+    } catch (e) {
+      this.catchError(e);
+    } 
   };
 
-  statusUpdateHandler = event => {
+  statusUpdateHandler = async event => {
     event.preventDefault();
-    fetch('URL')
-      .then(res => {
-        if (res.status !== 200 && res.status !== 201) {
-          throw new Error("Can't update status!");
-        }
-        return res.json();
-      })
-      .then(resData => {
-        console.log(resData);
-      })
-      .catch(this.catchError);
+
+    try {
+      const response = await fetch('URL');
+      if (response.status !== 200 && response.status !== 201) {
+        throw new Error("Can't update status!");
+      }
+      const data = await response.json();
+    } catch (e) {
+      this.catchError(e);
+    }
   };
 
   newPostHandler = () => {
@@ -105,7 +146,7 @@ class Feed extends Component {
     this.setState({ isEditing: false, editPost: null });
   };
 
-  finishEditHandler = postData => {
+  finishEditHandler = async postData => {
     this.setState({ editLoading: true });
     const formData = new FormData();
     formData.append('title', postData.title);
@@ -118,80 +159,63 @@ class Feed extends Component {
       method = 'PUT';
     }
 
-    fetch(url, { 
-      method,
-      body: formData,
-      headers: { Authorization: `Bearer ${this.props.token}` }
-    })
-      .then(res => {
-        if (res.status !== 200 && res.status !== 201) {
-          throw new Error('Creating or editing a post failed!');
-        }
-        return res.json();
+    try {
+      const response = await fetch(url, { 
+        method,
+        body: formData,
+        headers: { Authorization: `Bearer ${this.props.token}` }
       })
-      .then(resData => {
-        const post = {
-          _id: resData.post._id,
-          title: resData.post.title,
-          content: resData.post.content,
-          creator: resData.post.creator,
-          createdAt: resData.post.createdAt
-        };
-        this.setState(prevState => {
-          let updatedPosts = [...prevState.posts];
-          if (prevState.editPost) {
-            const postIndex = prevState.posts.findIndex(
-              p => p._id === prevState.editPost._id
-            );
-            updatedPosts[postIndex] = post;
-          } else if (prevState.posts.length < 2) {
-            updatedPosts = prevState.posts.concat(post);
-          }
-          return {
-            posts: updatedPosts,
-            isEditing: false,
-            editPost: null,
-            editLoading: false
-          };
-        });
-      })
-      .catch(err => {
-        console.log(err);
-        this.setState({
+      if (response.status !== 200 && response.status !== 201) {
+        throw new Error('Creating or editing a post failed!');
+      }
+      
+      const data = await response.json();
+      const post = {
+        _id: data.post._id,
+        title: data.post.title,
+        content: data.post.content,
+        creator: data.post.creator,
+        createdAt: data.post.createdAt
+      };
+      this.setState(prevState => {
+        return {
           isEditing: false,
           editPost: null,
-          editLoading: false,
-          error: err
-        });
+          editLoading: false
+        };
       });
+    } catch (e) {
+      this.setState({
+        isEditing: false,
+        editPost: null,
+        editLoading: false,
+        error: e
+      });
+    }
   };
 
   statusInputChangeHandler = (input, value) => {
     this.setState({ status: value });
   };
 
-  deletePostHandler = postId => {
+  deletePostHandler = async postId => {
     this.setState({ postsLoading: true });
-    fetch(`http://localhost:8080/feed/post/${postId}`, { 
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${this.props.token}` }
-    })
-    .then(res => {
-      if (res.status !== 200 && res.status !== 201) {
+
+    try {
+      const response = await fetch(`http://localhost:8080/feed/post/${postId}`, { 
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${this.props.token}` }
+      })
+      if (response.status !== 200 && response.status !== 201) {
         throw new Error('Deleting a post failed!');
       }
-      return res.json();
-    })
-    .then(resData => {
-      this.setState(prevState => {
-        const updatedPosts = prevState.posts.filter(p => p._id !== postId);
-        return { posts: updatedPosts, postsLoading: false };
-      });
-    })
-    .catch(err => {
-      console.log(err);
+  
+      const data = await response.json();
+      this.loadPosts();
+
+    } catch (e) {
       this.setState({ postsLoading: false });
-    });
+    }
   };
 
   errorHandler = () => {

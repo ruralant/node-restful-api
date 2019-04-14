@@ -12,29 +12,26 @@ class SinglePost extends Component {
     content: ''
   };
 
-  componentDidMount() {
+  async componentDidMount() {
     const postId = this.props.match.params.postId;
-    fetch(`http://localhost:8080/feed/post/${postId}`, {
-      headers: { Authorization: `Bearer ${this.props.token}` }
-    })
-      .then(res => {
-        if (res.status !== 200) {
-          throw new Error('Failed to fetch status');
-        }
-        return res.json();
+    try {
+      const response = await fetch(`http://localhost:8080/feed/post/${postId}`, {
+        headers: { Authorization: `Bearer ${this.props.token}` }
       })
-      .then(resData => {
-        this.setState({
-          title: resData.post.title,
-          author: resData.post.creator.name,
-          image: `http://localhost:8080/${resData.post.imageUrl}`,
-          date: new Date(resData.post.createdAt).toLocaleDateString('en-US'),
-          content: resData.post.content
-        });
-      })
-      .catch(err => {
-        console.log(err);
+      if (response.status !== 200) {
+        throw new Error('Failed to fetch status');
+      }
+      const data = await response.json();
+      this.setState({
+        title: data.post.title,
+        author: data.post.creator.name,
+        image: `http://localhost:8080/${data.post.imageUrl}`,
+        date: new Date(data.post.createdAt).toLocaleDateString('en-US'),
+        content: data.post.content
       });
+    } catch (e) {
+      console.log(e);
+    }
   }
 
   render() {
